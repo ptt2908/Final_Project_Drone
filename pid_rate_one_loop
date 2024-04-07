@@ -1,0 +1,25 @@
+/*------------------------------------------------------------------------*/
+// /* 1 vong rate angle */									
+//	DesiredRateRoll = 0.10*(receiver_input_channel_1-1500);  // -50do/s den 50do/s
+//  DesiredRatePitch = 0.10*(receiver_input_channel_2-1500); // -50do/s den 50do/s
+//  InputThrottle = receiver_input_channel_3;
+//  DesiredRateYaw = 0.1*(receiver_input_channel_4-1500);
+//	
+//  ErrorRateRoll=DesiredRateRoll-Gx;
+//  ErrorRatePitch=DesiredRatePitch-Gy;
+//  ErrorRateYaw=DesiredRateYaw-Gz;
+//	
+//  pid_equation(ErrorRateRoll, PRateRoll, IRateRoll, DRateRoll, PrevErrorRateRoll, PrevItermRateRoll);
+//       InputRoll=PIDReturn[0];
+//       PrevErrorRateRoll=PIDReturn[1]; 
+//       PrevItermRateRoll=PIDReturn[2];
+//			 
+//  pid_equation(ErrorRatePitch, PRatePitch,IRatePitch, DRatePitch, PrevErrorRatePitch, PrevItermRatePitch);
+//       InputPitch=PIDReturn[0]; 
+//       PrevErrorRatePitch=PIDReturn[1]; 
+//       PrevItermRatePitch=PIDReturn[2];
+//			 
+//  pid_equation(ErrorRateYaw, PRateYaw,IRateYaw, DRateYaw, PrevErrorRateYaw, PrevItermRateYaw);
+//       InputYaw=PIDReturn[0]; 
+//       PrevErrorRateYaw=PIDReturn[1]; 
+//       PrevItermRateYaw=PIDReturn[2];

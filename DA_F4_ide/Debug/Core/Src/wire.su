@@ -1,0 +1,2 @@
+../Core/Src/wire.c:12:6:twiSend	24	static
+../Core/Src/wire.c:27:6:twiReceive	24	static
