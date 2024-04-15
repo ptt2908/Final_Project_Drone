@@ -1,10 +1,10 @@
-11:26:37 **** Incremental Build of configuration Debug for project DA_F4_ide ****
+11:14:41 **** Incremental Build of configuration Debug for project DA_F4_ide ****
 make -j8 all 
 arm-none-eabi-size  DA_F4_ide.elf 
    text	   data	    bss	    dec	    hex	filename
-  44456	    208	   4240	  48904	   bf08	DA_F4_ide.elf
+  51208	    208	   4344	  55760	   d9d0	DA_F4_ide.elf
 Finished building: default.size.stdout
  
 
-11:26:37 Build Finished. 0 errors, 0 warnings. (took 192ms)
+11:14:42 Build Finished. 0 errors, 0 warnings. (took 196ms)
 

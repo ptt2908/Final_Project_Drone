@@ -24,7 +24,7 @@
 #include "stdbool.h"
 #include "math.h"
 #include "stdlib.h"
-#include "stdio.h"
+#include <stdio.h>
 #include <stdint.h>
 #include "string.h"
 #include "wire.h"
@@ -43,6 +43,12 @@
 #define PWR_MGMT_1_REG 0x6B
 #define WHO_AM_I_REG 0x75
 #define CONFIG_REG 0x1A
+
+#define HMC5883L_ADDER 0x3c
+#define CONFIGURATION_A  0x00
+#define CONFIGURATION_B  0x01
+#define HMC5883L_MODE  0x02
+#define X_MSB 0x03
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -129,6 +135,9 @@ float DAngleRoll=0.06; float DAnglePitch=0.06;
 float pid_p_gain_altitude = 2.3;
 float pid_i_gain_altitude = 0.4;
 float pid_d_gain_altitude = 0.75;
+
+float mx,my,mz;
+float actual_compass_heading = 0;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -139,6 +148,7 @@ int SetValue(int value, int inMin, int inMax, int outMin, int outMax);
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
+I2C_HandleTypeDef hi2c3;
 DMA_HandleTypeDef hdma_i2c1_rx;
 DMA_HandleTypeDef hdma_i2c1_tx;
 
@@ -196,10 +206,15 @@ void Send_Data_To_Gui()
 	Tx_buff[30] = m8n_rx_buf[14]; Tx_buff[31] = m8n_rx_buf[15];
 	Tx_buff[32] = m8n_rx_buf[16]; Tx_buff[33] = m8n_rx_buf[17];
 
-	Tx_buff[34] = '\r'; Tx_buff[35] = '\n';
+	unsigned char *actual_compass_heading_Bytes = (unsigned char *)&actual_compass_heading;   //actual_pressure
+	for (int i = 0; i < sizeof(float); ++i) {
+		Tx_buff[i + 34] = actual_compass_heading_Bytes[i];
+	}
+
+	Tx_buff[38] = '\r'; Tx_buff[39] = '\n';
 	if(Flag_Plot)
 	{
-		HAL_UART_Transmit_DMA(&huart2, Tx_buff,36);
+		HAL_UART_Transmit_DMA(&huart2, Tx_buff,40);
 	}
 }
 
@@ -324,6 +339,56 @@ HAL_StatusTypeDef MPU6050_Read_Data (void)
 	return HAL_OK;
 }
 
+void hmc5883l_init(void)
+{
+	uint8_t data = 0x78; //0x78 la 75Hz   0x70 la 15Hz
+	HAL_I2C_Mem_Write(&hi2c3,0x3C,CONFIGURATION_A, 1, &data, 1,HAL_MAX_DELAY); //�?置寄存器A
+	data = 0x20;   // ± 1.3 Ga
+	HAL_I2C_Mem_Write(&hi2c3,0x3C,CONFIGURATION_B, 1, &data, 1,HAL_MAX_DELAY); //�?置寄存器B
+	data = 0x00;  ////mode continuous measurement
+	HAL_I2C_Mem_Write(&hi2c3,0x3C,HMC5883L_MODE, 1, &data, 1,HAL_MAX_DELAY);
+	HAL_Delay(10);
+}
+
+void hmc5883l_rawread(float *GaX, float *GaY, float *GaZ){
+	uint8_t data[6];
+    HAL_I2C_Mem_Read(&hi2c3, 0x3C, 0x03,I2C_MEMADD_SIZE_8BIT,(uint8_t *)data,6, 1000);
+	int16_t dxra,dyra,dzra;
+	dxra = (data[0] << 8) | data[1];
+	*GaX = (float)dxra*0.92;      //*GaX = (float)dxra /1090;
+	dyra = (data[4] << 8) | data[5];
+	*GaY = (float)dyra*0.92;  //*GaY = (float)dyra /1090 ;
+	dzra = (data[2] << 8) | data[3];
+	*GaZ = (float)dzra*0.92;	//*GaZ = (float)dzra /1090 ;
+}
+
+void  hmc5883l_read(){
+
+		float rawGaX,rawGaY,rawGaZ;
+		float compass_x_horizontal,compass_y_horizontal;
+		hmc5883l_rawread(&rawGaX,&rawGaY,&rawGaZ);
+		rawGaX *= -1;
+		rawGaY *= -1;
+		float GaY = rawGaX - 75.9000015;
+		float GaX = rawGaY + 350.0600134;
+		float GaZ = rawGaZ + 54.2799988;
+
+		mz = GaZ;
+		mx = GaX;
+		my = GaY;
+		//GaX = compass_y(arduino)
+		// mai tets thu GaX = rawGaY + 350, GaY  = rawGaX -75;
+		compass_x_horizontal = (float)GaX * cos(KalmanAnglePitch * (pi/180))
+		                        + (float)GaY * sin(KalmanAngleRoll * (pi/180))* sin(KalmanAnglePitch * (pi/180))
+		                        - (float)GaZ * cos(KalmanAngleRoll * (pi/180)) * sin(KalmanAnglePitch * (pi/180));
+		compass_y_horizontal = (float)GaY * cos(KalmanAngleRoll * (pi/180))
+		                        + (float)GaZ * sin(KalmanAngleRoll * (pi/180));
+		actual_compass_heading = atan2(compass_y_horizontal,compass_x_horizontal)*180/pi;
+		actual_compass_heading += 7.001;
+		if(actual_compass_heading < 0) actual_compass_heading += 360;
+		else if(actual_compass_heading > 360) actual_compass_heading -= 360;
+}
+
 void Calib_Gyro(void);
 void Reset_MPU6050(void);
 
@@ -367,6 +432,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_SPI3_Init(void);
+static void MX_I2C3_Init(void);
 /* USER CODE BEGIN PFP */
 int Receive_Throttle_Min(void);
 /* USER CODE END PFP */
@@ -417,8 +483,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 		memcpy(&pid_i_gain_altitude, &Rx_Data[67], sizeof(float));
 		memcpy(&pid_d_gain_altitude, &Rx_Data[71], sizeof(float));
 
-		Tx_buff[0] = 'B'; Tx_buff[1] = 'E';Tx_buff[34] = '\r'; Tx_buff[35] = '\n';
-		HAL_UART_Transmit_DMA(&huart2, (uint8_t*)Tx_buff,36);
+		Tx_buff[0] = 'B'; Tx_buff[1] = 'E';Tx_buff[38] = '\r'; Tx_buff[39] = '\n';
+		HAL_UART_Transmit_DMA(&huart2, (uint8_t*)Tx_buff,40);
 		//memset(Tx_buff, 0, sizeof(Tx_buff));	
 	}
 	if ((Rx_buff[0] == 0xCC) && (Rx_buff[1] == 0xDD))
@@ -426,10 +492,10 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 		memset(Tx_buff, 0, sizeof(Tx_buff));
 		Flag_Plot = Rx_buff[2];
 		memset(Rx_buff, 0, sizeof(Rx_buff));		
-		if (Flag_Plot){ Tx_buff[0] = 'P'; Tx_buff[1] = 'L';}
-		else{Tx_buff[0] = 'S'; Tx_buff[1] = 'T'; }		  
-		Tx_buff[34] = '\r'; Tx_buff[35] = '\n';
-		HAL_UART_Transmit_DMA(&huart2, (uint8_t*)Tx_buff,36);
+		if (Flag_Plot){ Tx_buff[0] = 'P'; Tx_buff[1] = 'L';} //Start
+		else{Tx_buff[0] = 'S'; Tx_buff[1] = 'T'; }		     //Stop
+		Tx_buff[38] = '\r'; Tx_buff[39] = '\n';
+		HAL_UART_Transmit_DMA(&huart2, (uint8_t*)Tx_buff,40);
 		//memset(Tx_buff, 0, sizeof(Tx_buff));	
 	}
 	
@@ -486,6 +552,7 @@ int main(void)
   MX_I2C2_Init();
   MX_USART3_UART_Init();
   MX_SPI3_Init();
+  MX_I2C3_Init();
   /* USER CODE BEGIN 2 */
   setupSensor();
   HAL_Delay(10);
@@ -495,6 +562,7 @@ int main(void)
 	  HAL_Delay(5);
   }
   actual_pressure = 0;
+  hmc5883l_init();
   HAL_TIM_Base_Start_IT(&htim4);
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, Rx_buff, sizeof(Rx_buff));
   __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
@@ -557,6 +625,7 @@ int main(void)
 	  Gy -= Gyro_Y_Calib;
 	  Gz -= Gyro_Z_Calib;
 
+	  hmc5883l_read();  //read compass
 	  kalman_1d(KalmanAngleRoll, KalmanUncertaintyAngleRoll, Gx, AngleRoll);
       	  KalmanAngleRoll = Kalman1DOutput[0];
       	  KalmanUncertaintyAngleRoll = Kalman1DOutput[1];
@@ -758,6 +827,40 @@ static void MX_I2C2_Init(void)
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief I2C3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C3_Init(void)
+{
+
+  /* USER CODE BEGIN I2C3_Init 0 */
+
+  /* USER CODE END I2C3_Init 0 */
+
+  /* USER CODE BEGIN I2C3_Init 1 */
+
+  /* USER CODE END I2C3_Init 1 */
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.ClockSpeed = 100000;
+  hi2c3.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c3.Init.OwnAddress1 = 0;
+  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2 = 0;
+  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C3_Init 2 */
+
+  /* USER CODE END I2C3_Init 2 */
 
 }
 
